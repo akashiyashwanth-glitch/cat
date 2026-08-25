@@ -28,11 +28,15 @@ export type RootStackParamList = {
 };
 
 /**
- * Placeholder domain types for the clinical assessment domain.
- * These will be fully fleshed out in Phase 1 (data layer & stores); here
- * we declare the minimal surface so the shell can reference something.
+ * Shared types for the Clinical Assessment Tracker.
+ *
+ * These mirror `GUIDE.md` §4 (data model / source of truth) and are mapped
+ * onto the SQLite tables created in `src/db`. Every tool is described by its
+ * question schema (`config_json`); a session stores `ToolResult`s that are
+ * written through to `session_tools`.
  */
 
+/** The five supported question renderings. One engine renders all tools. */
 export type QuestionType =
   | 'single-select'
   | 'multiselect'
@@ -40,30 +44,69 @@ export type QuestionType =
   | 'numeric'
   | 'text';
 
+/** A single choice for single-select, multiselect and rating items. */
 export interface Option {
-  key: string;
+  /** Stable identifier used as the stored answer value. */
+  value: string;
+  /** Human-readable label shown in the UI. */
   label: string;
-  value: number;
+  /** Contribution to the overall tool score when selected. */
+  score: number;
 }
 
+/** One question inside a tool's config schema. */
 export interface QuestionDef {
-  key: string;
+  id: string;
   prompt: string;
   type: QuestionType;
   options?: Option[];
-  unit?: string;
+  /** Inclusive lower bound for numeric/rating scales. */
   min?: number;
+  /** Inclusive upper bound for numeric/rating scales. */
   max?: number;
+  /** Whether the question must be answered before submit. */
+  required?: boolean;
 }
 
+/** Full definition of an assessment tool (assembled from the `tools` table). */
 export interface ToolDef {
   id: string;
-  title: string;
-  abbreviation: string;
-  description: string;
+  name: string;
+  shortName: string;
+  description?: string;
   questions: QuestionDef[];
+  /** Informational ceiling of the summed score (not necessarily all questions). */
+  maxScore: number;
 }
 
+/** Values a patient can supply for a single question. */
+export type AnswerValue = string | number | string[] | null;
+
+/** A single question ↔ answer pair. */
+export interface Answer {
+  questionId: string;
+  value: AnswerValue;
+}
+
+/** Persisted result of one tool within a session (`session_tools`). */
+export interface ToolResult {
+  toolId: string;
+  answers: Answer[];
+  score: number;
+}
+
+/** A completed or in-progress assessment session (`sessions`). */
+export interface Session {
+  id: string;
+  patientId: string;
+  toolResults: ToolResult[];
+  /** Epoch milliseconds when the session was created. */
+  createdAt: number;
+  /** ISO timestamp once marked complete, or null while in progress. */
+  completedAt?: string | null;
+}
+
+/** A patient record (`patients`). */
 export interface Patient {
   id: string;
   name: string;
@@ -72,10 +115,26 @@ export interface Patient {
   createdAt: number;
 }
 
+/** Practitioner preferences / default report recipients (`settings`). */
 export interface Settings {
-  practitionerName?: string;
   defaultEmails: string[];
+  practitionerName?: string;
   notes?: string;
+}
+
+/** Per-tool comparison used by the comparative screen (Phase 2+). */
+export interface ComparativeResult {
+  patientId: string;
+  baseline: Session;
+  current: Session;
+  perTool: Array<{
+    toolId: string;
+    toolName: string;
+    baselineScore: number;
+    currentScore: number;
+    delta: number;
+  }>;
+  generatedAt: number;
 }
 
 // Route helpers for convenience

@@ -1,22 +1,17 @@
-import { create } from 'zustand';
-
 /**
- * Global app shell store placeholder.
+ * Store index — single export surface for all zustand slices.
  *
- * Feature slices (tools, session, settings, etc.) and persistence are
- * implemented starting in Phase 1. This keeps a created-by-zustand store
- * wired in so the dependency is exercised from the shell.
+ * - `useToolsStore`   — tool catalog cache (hydrated from `db/tools.ts`).
+ * - `useSessionStore` — current patient + active session + answers.
+ * - `useSettingsStore`— practitioner preferences / defaultEmails.
+ *
+ * The slices live in this folder as separate modules and are re-exported here
+ * so the rest of the app has one import point (`src/store`).
  */
 
-interface AppShellState {
-  /** Whether the app finished its boot sequence (DB init, settings load). */
-  ready: boolean;
-  markReady: () => void;
-}
+export { useToolsStore } from './toolsStore';
+import { useSessionStore } from './sessionStore';
+export { useSessionStore } from './sessionStore';
+export { useSettingsStore } from './settingsStore';
 
-export const useAppStore = create<AppShellState>((set) => ({
-  ready: false,
-  markReady: () => set({ ready: true }),
-}));
-
-export default useAppStore;
+export default useSessionStore;

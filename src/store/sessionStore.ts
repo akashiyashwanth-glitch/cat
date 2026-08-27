@@ -47,6 +47,12 @@ interface SessionState {
   flushAnswers: () => void;
   /** Marks the active session complete in the DB and in state. */
   finalizeSession: () => void;
+  /**
+   * Persists the active session as completed, guarding against resubmission: it
+   * flushes any pending debounced answer writes, then stamps `completedAt` in
+   * both the DB and in-memory state.
+   */
+  submitSession: () => void;
   /** Clears the in-memory patient + session (history rows are kept). */
   clearSession: () => void;
 }
@@ -131,6 +137,14 @@ export const useSessionStore = create<SessionState>()(
         const completedAt = new Date().toISOString();
         dbFinalizeSession(activeSession.id, completedAt);
         set({ activeSession: { ...activeSession, completedAt } });
+      },
+
+      submitSession: () => {
+        const { activeSession } = get();
+        if (!activeSession) return;
+        // Land any still-pending debounced answer writes before stamping done.
+        get().flushAnswers();
+        get().finalizeSession();
       },
 
       clearSession: () => set({ patient: null, activeSession: null }),

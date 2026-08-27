@@ -20,6 +20,9 @@ import { useToolsStore } from './toolsStore';
  * relaunch.
  */
 
+/** Debounced `session_tools` write so rapid answer edits coalesce (~400ms). */
+let answersWriteTimer: ReturnType<typeof setTimeout> | null = null;
+
 interface SessionState {
   /** Patient currently being assessed (null before intake). */
   patient: Patient | null;
@@ -34,6 +37,14 @@ interface SessionState {
   startSession: (patient: Patient) => Session;
   /** Adds/replaces one tool's answers, scores them, and writes to `session_tools`. */
   addToolResult: (toolId: string, answers: Answer[]) => void;
+  /**
+   * Applies answer changes to one tool partition of the active session. Updates
+   * the (in-memory, persisted) zustand slice immediately but debounces the
+   * `session_tools` DB write so rapid typing doesn't churn the DB (~400ms).
+   */
+  updateAnswers: (toolId: string, answers: Answer[]) => void;
+  /** Writes any still-pending debounced answer changes to `session_tools`. */
+  flushAnswers: () => void;
   /** Marks the active session complete in the DB and in state. */
   finalizeSession: () => void;
   /** Clears the in-memory patient + session (history rows are kept). */
@@ -73,6 +84,45 @@ export const useSessionStore = create<SessionState>()(
 
         dbSaveToolResult(activeSession.id, result, order);
         set({ activeSession: { ...activeSession, toolResults } });
+      },
+
+      updateAnswers: (toolId, answers) => {
+        const { activeSession } = get();
+        if (!activeSession) return;
+
+        const tool = useToolsStore.getState().tools.find((t) => t.id === toolId);
+        const score = tool ? scoreToolResult(tool, answers) : 0;
+
+        const toolResults = [...activeSession.toolResults];
+        const index = toolResults.findIndex((t) => t.toolId === toolId);
+        // Ignore answers for tools that aren't part of the active session yet.
+        if (index < 0) return;
+        toolResults[index] = { toolId, answers, score };
+        set({ activeSession: { ...activeSession, toolResults } });
+
+        // Debounced write through to session_tools (~400ms of quiet).
+        if (answersWriteTimer) clearTimeout(answersWriteTimer);
+        answersWriteTimer = setTimeout(() => {
+          answersWriteTimer = null;
+          const current = get().activeSession;
+          if (!current) return;
+          const target = current.toolResults.find((t) => t.toolId === toolId);
+          if (!target) return;
+          const order = current.toolResults.indexOf(target);
+          dbSaveToolResult(current.id, target, order);
+        }, 400);
+      },
+
+      flushAnswers: () => {
+        if (answersWriteTimer) {
+          clearTimeout(answersWriteTimer);
+          answersWriteTimer = null;
+        }
+        const { activeSession } = get();
+        if (!activeSession) return;
+        activeSession.toolResults.forEach((result, order) =>
+          dbSaveToolResult(activeSession.id, result, order),
+        );
       },
 
       finalizeSession: () => {

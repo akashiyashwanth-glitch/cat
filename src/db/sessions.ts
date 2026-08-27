@@ -100,6 +100,22 @@ export function listSessions(patientId?: string): Session[] {
   });
 }
 
+/**
+ * Returns the most recently created, still-incomplete session for a patient
+ * (i.e. one without a `completedAt`), or null. Used to offer resume-on-intake.
+ */
+export function findIncompleteSession(patientId: string): Session | null {
+  const row = getDb().getFirstSync<SessionRow>(
+    `SELECT id, patient_id, created_at, completed_at
+     FROM sessions
+     WHERE patient_id = ? AND completed_at IS NULL
+     ORDER BY created_at DESC`,
+    [patientId],
+  );
+  if (!row) return null;
+  return getSession(row.id);
+}
+
 /** Marks a session complete by stamping an ISO `completedAt`. */
 export function finalizeSession(id: string, completedAt?: string): void {
   const stamp = completedAt ?? new Date().toISOString();

@@ -54,6 +54,21 @@ export function upsertPatient(nameOrInput: string | PatientInput): Patient {
   return saved;
 }
 
+/**
+ * Finds a patient by an exact (case-insensitive, trimmed) name match, or null.
+ * Used by patient intake so repeated submissions of the same name reuse the
+ * existing record instead of creating duplicate rows (idempotent upsert).
+ */
+export function findPatientByName(name: string): Patient | null {
+  const search = (name ?? '').trim().toLowerCase();
+  if (!search) return null;
+  const rows = getDb().getAllSync<PatientRow>(
+    'SELECT id, name, mrn, dob, created_at FROM patients',
+  );
+  const match = rows.find((row) => row.name.trim().toLowerCase() === search);
+  return match ? rowToPatient(match) : null;
+}
+
 /** Loads a single patient by id, or null. */
 export function getPatient(id: string): Patient | null {
   const row = getDb().getFirstSync<PatientRow>(

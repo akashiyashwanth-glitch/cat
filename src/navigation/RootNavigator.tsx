@@ -10,6 +10,7 @@ import { ScannerScreen } from '../screens/ScannerScreen';
 import { ComparativeScreen } from '../screens/ComparativeScreen';
 import { TabNavigator } from './TabNavigator';
 import { colors, typography, fontWeight } from '../theme';
+import { ScanHeaderButton } from '../components';
 import type { RootStackParamList } from '../types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -48,12 +49,23 @@ export function RootNavigator() {
       <Stack.Screen
         name="PatientEntry"
         component={PatientEntryScreen}
-        options={{ title: 'Patient Entry' }}
+        options={({ navigation }) => ({
+          title: 'Patient Entry',
+          // Persistent QR-scanner icon so intake can always jump to Scanner.
+          headerRight: () => (
+            <ScanHeaderButton onPress={() => navigation.navigate('Scanner')} />
+          ),
+        })}
       />
       <Stack.Screen
         name="AssessmentForm"
         component={AssessmentFormScreen}
-        options={{ title: 'Assessment' }}
+        options={({ navigation }) => ({
+          title: 'Assessment',
+          headerRight: () => (
+            <ScanHeaderButton onPress={() => navigation.navigate('Scanner')} />
+          ),
+        })}
       />
       <Stack.Screen
         name="ReviewSubmit"

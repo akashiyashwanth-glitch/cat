@@ -22,7 +22,7 @@ export type RootStackParamList = {
   PatientEntry: undefined;
   AssessmentForm: undefined;
   ReviewSubmit: undefined;
-  ReportPreview: undefined;
+  ReportPreview: { sessionId?: string } | undefined;
   Scanner: undefined;
   Comparative: undefined;
 };

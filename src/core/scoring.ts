@@ -41,6 +41,45 @@ function scoreQuestion(question: QuestionDef, value: AnswerValue): number {
   return 0; // numeric / text / unanswered
 }
 
+/** Clamps a finite number into the inclusive `[min, max]` range (non-finite → `min`). */
+export function clamp(value: number, min = 0, max = 100): number {
+  if (!Number.isFinite(value)) return min;
+  return Math.min(Math.max(value, min), max);
+}
+
+/**
+ * Normalizes a raw tool score into a 0–100 percentage of its `maxScore`.
+ *
+ * Returns 0 whenever the max is missing / non-positive so report formulas never
+ * divide by zero, and clamps the result so a raw score that accidentally exceeds
+ * the declared ceiling still produces a max of 100%.
+ */
+export function normalizeScore(score: number, maxScore: number): number {
+  if (!Number.isFinite(score) || !Number.isFinite(maxScore) || maxScore <= 0) {
+    return 0;
+  }
+  return clamp(score / maxScore, 0, 100) * 100;
+}
+
+/**
+ * Sum of the largest achievable per-question scores for the input types that
+ * `scoreToolResult` actually counts (option-backed single-select/rating and
+ * multiselect). Used as a fallback when a tool omits `maxScore`.
+ */
+export function maxScorable(tool: ToolDef): number {
+  return tool.questions.reduce((sum, question) => {
+    if (question.type === 'single-select' || question.type === 'rating') {
+      const options = question.options ?? [];
+      return sum + (options.length > 0 ? Math.max(...options.map((o) => o.score)) : 0);
+    }
+    if (question.type === 'multiselect') {
+      const options = question.options ?? [];
+      return sum + options.reduce((s, o) => s + Math.max(o.score, 0), 0);
+    }
+    return sum;
+  }, 0);
+}
+
 /**
  * Whether every required question in a tool has a non-blank answer.
  * Used when deciding whether a session can be submitted.

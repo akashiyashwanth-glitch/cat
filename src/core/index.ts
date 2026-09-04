@@ -10,6 +10,7 @@ export { scoreToolResult, hasCompleteAnswers, normalizeScore, maxScorable, clamp
 export {
   analyzeSession,
   analyzeComparison,
+  buildComparativeResult,
   getRiskLevel,
   minMaxAcrossTools,
   trendForDelta,
@@ -22,4 +23,5 @@ export {
   type SessionAnalysis,
   type ComparativeReport,
 } from './analytics';
+export type { ComparativeResult } from '../types';
 export { default } from './scoring';

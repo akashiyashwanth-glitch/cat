@@ -243,7 +243,7 @@ export function buildBarChartSvg(analysis: SessionAnalysis): string {
     return '<p class="empty">No tool data to chart.</p>';
   }
 
-  const hasBaseline = tools.some((t) => t.baselineScore !== undefined);
+  const hasBaseline = tools.some((t) => t.baselineNormalized !== undefined);
   const groupWidth = CHART_WIDTH / tools.length;
 
   const grid = TICKS.map((tick) => {
@@ -283,7 +283,7 @@ export function buildBarChartSvg(analysis: SessionAnalysis): string {
       let rects = '';
       let currentX = startX;
       if (hasBaseline) {
-        rects += bar(metric.baselineScore ?? 0, currentX, COLOR_BASELINE);
+        rects += bar(metric.baselineNormalized ?? 0, currentX, COLOR_BASELINE);
         currentX += barWidth + gap;
       }
       rects += bar(metric.normalized, currentX, COLOR_CURRENT);

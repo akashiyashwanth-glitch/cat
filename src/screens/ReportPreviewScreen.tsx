@@ -1,19 +1,33 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Pdf from 'react-native-pdf';
 import * as Sharing from 'expo-sharing';
 import * as Haptics from 'expo-haptics';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 
-import { Button, Toast } from '../components';
+import { Button, ReportAnalytics, Toast } from '../components';
 import { colors, spacing, typography, fontWeight } from '../theme';
 import { useSessionStore, useSettingsStore, useToolsStore } from '../store';
-import { getSession } from '../db';
-import { generateReportPDF, type GeneratedPDF } from '../services';
-import type { RootStackParamList } from '../types';
+import { getSession, listSessions } from '../db';
+import {
+  generateReportPDF,
+  formatDate,
+  sessionReportDate,
+  type GeneratedPDF,
+} from '../services';
+import { analyzeSession, type SessionAnalysis } from '../core';
+import type { RootStackParamList, Session } from '../types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ReportPreview'>;
+type ReportTab = 'analytics' | 'pdf';
 
 /**
  * Report preview.
@@ -21,13 +35,27 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ReportPreview'>;
  * Generates the A4 PDF on entry (from the just-submitted session, or a
  * `sessionId` passed via deep link), renders it with `react-native-pdf`, and
  * exposes a "Download PDF" share action (saves/shared on both iOS & Android)
- * plus the comparative-report entry point.
+ * plus the comparative-report entry point. The "Analytics" tab surfaces the
+ * same baseline-vs-current chart, KPIs and risk badge natively via
+ * `react-native-svg` — available immediately, without waiting on the PDF.
  */
+
+/** Most recent completed session for the same patient before `session`. */
+function findPreviousSession(session: Session): Session | null {
+  if (!session.patientId) return null;
+  const earlier = listSessions(session.patientId)
+    .filter((s) => s.id !== session.id && s.completedAt && s.createdAt < session.createdAt)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  return earlier[0] ?? null;
+}
 export function ReportPreviewScreen({ navigation, route }: Props) {
   const [document, setDocument] = useState<GeneratedPDF | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [pages, setPages] = useState(0);
+  const [tab, setTab] = useState<ReportTab>('pdf');
+  const [analysis, setAnalysis] = useState<SessionAnalysis | null>(null);
+  const [baselineLabel, setBaselineLabel] = useState<string | undefined>(undefined);
 
   const activeSession = useSessionStore((s) => s.activeSession);
   const practitionerName = useSettingsStore((s) => s.settings.practitionerName);
@@ -47,7 +75,19 @@ export function ReportPreviewScreen({ navigation, route }: Props) {
 
       // Prefer the persisted row (carries `completedAt`) when available.
       const latest = getSession(session.id) ?? session;
-      const generated = await generateReportPDF(latest, { practitionerName });
+      const tools = useToolsStore.getState().tools;
+
+      // Analytics are ready immediately — the chart does not wait on the PDF.
+      const previous = findPreviousSession(latest) ?? null;
+      setAnalysis(analyzeSession(latest, tools, previous));
+      setBaselineLabel(
+        previous ? `Previous visit · ${formatDate(sessionReportDate(previous))}` : undefined,
+      );
+
+      const generated = await generateReportPDF(latest, {
+        practitionerName,
+        baseline: previous,
+      });
       setDocument(generated);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Unable to generate the PDF report');
@@ -110,59 +150,93 @@ export function ReportPreviewScreen({ navigation, route }: Props) {
         </View>
       ) : null}
 
-      {!error && hasSession && loading ? (
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingLabel}>Generating PDF…</Text>
-        </View>
-      ) : null}
-
-      {!error && hasSession && !loading && document ? (
-        <>
-          <View style={styles.fileBar}>
-            <Text style={styles.fileName} numberOfLines={1}>
-              {document.name}
-            </Text>
-            <Text style={styles.fileMeta}>
-              {pages > 0 ? `${pages} page${pages === 1 ? '' : 's'} · ` : ''}
-              {(document.size / 1024).toFixed(1)} KB
-            </Text>
-          </View>
-
-          <View style={styles.pdfWrap}>
-            <Pdf
-              source={{ uri: document.uri, cache: false }}
-              style={styles.pdf}
-              trustAllCerts={false}
-              enablePaging
-              fitPolicy={0}
-              onLoadComplete={(numberOfPages) => setPages(numberOfPages)}
-              onError={(cause) =>
-                setError(
-                  cause?.message ? `Unable to open the PDF: ${cause.message}` : 'Unable to open the PDF',
-                )
-              }
-              renderActivityIndicator={(progress) => (
-                <View style={styles.pdfLoading}>
-                  <ActivityIndicator color={colors.primary} />
-                  <Text style={styles.pdfLoadingLabel}>
-                    {progress > 0 ? `${Math.round(progress * 100)}%` : 'Loading PDF…'}
+      {!error && hasSession ? (
+        <View style={styles.shell}>
+          <View style={styles.tabsRow}>
+            {(['analytics', 'pdf'] as const).map((name) => {
+              const active = tab === name;
+              return (
+                <Pressable
+                  key={name}
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => setTab(name)}
+                  style={[styles.tab, active && styles.tabActive]}
+                >
+                  <Text style={[styles.tabLabel, active && styles.tabLabelActive]}>
+                    {name === 'analytics' ? 'Analytics' : 'PDF'}
                   </Text>
-                </View>
-              )}
-            />
+                </Pressable>
+              );
+            })}
           </View>
 
-          <View style={styles.footer}>
-            <Button label="Download PDF" onPress={download} />
-            <View style={styles.gap} />
-            <Button
-              label="Compare with Previous"
-              variant="secondary"
-              onPress={() => navigation.navigate('Comparative')}
-            />
-          </View>
-        </>
+          {tab === 'analytics' && analysis ? (
+            <ScrollView
+              style={styles.scroll}
+              contentContainerStyle={styles.scrollContent}
+              showsVerticalScrollIndicator={false}
+            >
+              <ReportAnalytics analysis={analysis} baselineLabel={baselineLabel} />
+            </ScrollView>
+          ) : tab === 'analytics' ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.loadingLabel}>Preparing analytics…</Text>
+            </View>
+          ) : tab === 'pdf' && loading ? (
+            <View style={styles.center}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.loadingLabel}>Generating PDF…</Text>
+            </View>
+          ) : tab === 'pdf' && document ? (
+            <View style={styles.pdfShell}>
+              <View style={styles.fileBar}>
+                <Text style={styles.fileName} numberOfLines={1}>
+                  {document.name}
+                </Text>
+                <Text style={styles.fileMeta}>
+                  {pages > 0 ? `${pages} page${pages === 1 ? '' : 's'} · ` : ''}
+                  {(document.size / 1024).toFixed(1)} KB
+                </Text>
+              </View>
+
+              <View style={styles.pdfWrap}>
+                <Pdf
+                  source={{ uri: document.uri, cache: false }}
+                  style={styles.pdf}
+                  trustAllCerts={false}
+                  enablePaging
+                  fitPolicy={0}
+                  onLoadComplete={(numberOfPages) => setPages(numberOfPages)}
+                  onError={(cause) =>
+                    setError(
+                      cause?.message ? `Unable to open the PDF: ${cause.message}` : 'Unable to open the PDF',
+                    )
+                  }
+                  renderActivityIndicator={(progress) => (
+                    <View style={styles.pdfLoading}>
+                      <ActivityIndicator color={colors.primary} />
+                      <Text style={styles.pdfLoadingLabel}>
+                        {progress > 0 ? `${Math.round(progress * 100)}%` : 'Loading PDF…'}
+                      </Text>
+                    </View>
+                  )}
+                />
+              </View>
+
+              <View style={styles.footer}>
+                <Button label="Download PDF" onPress={download} />
+                <View style={styles.gap} />
+                <Button
+                  label="Compare with Previous"
+                  variant="secondary"
+                  onPress={() => navigation.navigate('Comparative')}
+                />
+              </View>
+            </View>
+          ) : null}
+        </View>
       ) : null}
     </SafeAreaView>
   );
@@ -170,6 +244,31 @@ export function ReportPreviewScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.background },
+  shell: { flex: 1, backgroundColor: colors.background },
+  tabsRow: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  tab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabActive: { borderBottomColor: colors.primary },
+  tabLabel: {
+    fontSize: typography.bodySm,
+    fontWeight: fontWeight.semibold,
+    color: colors.textMuted,
+  },
+  tabLabelActive: { color: colors.primary },
+  scroll: { flex: 1 },
+  scrollContent: { padding: spacing.base, paddingBottom: spacing.xxl },
+  pdfShell: { flex: 1 },
   center: {
     flex: 1,
     alignItems: 'center',

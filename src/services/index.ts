@@ -35,6 +35,10 @@ export {
   buildToolDetailPages,
   buildComparativeSection,
   formatAnswerValue,
+  formatDate,
+  formatPercent,
+  sessionReportDate,
+  truncateLabel,
   escapeHtml,
   type ReportTemplateOptions,
 } from './reportTemplate';

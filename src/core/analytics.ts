@@ -1,4 +1,4 @@
-import type { Answer, Session, ToolDef } from '../types';
+import type { Answer, ComparativeResult, Session, ToolDef } from '../types';
 import { clamp, maxScorable, normalizeScore } from './scoring';
 
 /**
@@ -76,6 +76,10 @@ export interface ToolMetric {
 
   // Baseline comparison (undefined when no baseline was supplied).
   baselineScore?: number;
+  /** `baselineScore` normalized to the same 0–100 scale as `normalized`. */
+  baselineNormalized?: number;
+  /** Risk band for `baselineNormalized`. */
+  baselineRiskLevel?: RiskLevel;
   /** current − baseline (raw points). */
   delta?: number;
   /** `delta / baseline * 100` — undefined when baseline is 0. */
@@ -154,10 +158,14 @@ export function analyzeSession(
 
     const baselineResult = baseline?.toolResults.find((b) => b.toolId === result.toolId);
     let baselineScore: number | undefined;
+    let baselineNormalized: number | undefined;
+    let baselineRiskLevel: RiskLevel | undefined;
     let delta: number | undefined;
     let pctChange: number | undefined;
     if (baselineResult) {
       baselineScore = baselineResult.score;
+      baselineNormalized = normalizeScore(baselineScore, maxScore);
+      baselineRiskLevel = getRiskLevel(baselineNormalized);
       delta = result.score - baselineScore;
       if (baselineScore !== 0) pctChange = (delta / baselineScore) * 100;
     }
@@ -175,6 +183,8 @@ export function analyzeSession(
       total,
       completion: total > 0 ? answered / total : 0,
       baselineScore,
+      baselineNormalized,
+      baselineRiskLevel,
       delta,
       pctChange,
       trend: trendForDelta(delta),
@@ -285,6 +295,48 @@ export function buildInsight(perTool: readonly ToolMetric[]): string {
     return `${name} held steady at ${score} points since the previous assessment.`;
   }
   return `${name} ${direction} from ${points}${percent} \u2014 the largest change across tools this visit.`;
+}
+
+/**
+ * Builds the `ComparativeResult` object consumed by the scanner/compare flow
+ * (Phase 8): a plain, transportable per-tool comparison of raw scores with none
+ * of the fuller `ComparativeReport` analytics attached. Reuses the underlying
+ * baseline session so callers still have the source `Session`s to compare.
+ */
+export function buildComparativeResult(
+  current: Session,
+  previous: Session,
+  tools: readonly ToolDef[],
+): ComparativeResult {
+  const baseline = analyzeSession(previous, tools);
+  const currentAnalysis = analyzeSession(current, tools, previous);
+
+  const perTool = currentAnalysis.tools
+    .map((metric) => {
+      const baselineMetric = baseline.tools.find((b) => b.toolId === metric.toolId);
+      const baselineScore = baselineMetric?.score ?? 0;
+      const currentScore = metric.score;
+      return {
+        toolId: metric.toolId,
+        toolName: metric.shortName,
+        baselineScore,
+        currentScore,
+        delta: currentScore - baselineScore,
+      };
+    })
+    .sort(
+      (a, b) =>
+        Math.abs(b.delta) - Math.abs(a.delta) ||
+        a.toolName.localeCompare(b.toolName),
+    );
+
+  return {
+    patientId: current.patientId,
+    baseline: previous,
+    current,
+    perTool,
+    generatedAt: Date.now(),
+  };
 }
 
 export default analyzeSession;

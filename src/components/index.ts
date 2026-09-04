@@ -5,3 +5,6 @@ export { QuestionAnswerCard, QuestionControl } from './QuestionControls';
 export { ScanHeaderButton } from './ScanHeaderButton';
 export { SlideToSubmit } from './SlideToSubmit';
 export { Toast, ToastProvider } from './Toast';
+export { RiskBadge } from './RiskBadge';
+export { AnalyticsChart } from './AnalyticsChart';
+export { ReportAnalytics } from './ReportAnalytics';
